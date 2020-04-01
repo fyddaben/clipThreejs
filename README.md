@@ -1,29 +1,6 @@
 # clipthreejs
 
-## Project setup
-```
-npm install
-```
+## 三维切割, 利用Threejs,由2D转化为3D的分割
 
-### Compiles and hot-reloads for development
-```
-npm run serve
-```
-
-### Compiles and minifies for production
-```
-npm run build
-```
-
-### Run your tests
-```
-npm run test
-```
-
-### Lints and fixes files
-```
-npm run lint
-```
-
-### Customize configuration
-See [Configuration Reference](https://cli.vuejs.org/config/).
+## 示例
+![hello](./pic.gif)
