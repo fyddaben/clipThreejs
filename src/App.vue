@@ -157,15 +157,35 @@ export default {
       var newPoint = []
       var w = this.getNearPlaneWidth().w
       var h = this.getNearPlaneWidth().h
+      var decPoint = []
       point.map((p, i)=> {
         var x = p[0] / this.viewWidth * 2 - 1;
         var y = -p[1] / this.viewHeight * 2 + 1;
         newPoint.push([x*(w/2), y*(h/2)])
+        decPoint.push([x, y])
       })
       this.isCanRotate = true
-      this.drawShape(newPoint)
+      this.drawShape(newPoint, decPoint)
     },
-    drawShape(point) {
+    // 计算点在轮廓中是否存在
+    pointInpolygon(point, vs) {
+      // ray-casting algorithm based on
+      // http://www.ecse.rpi.edu/Homepages/wrf/Research/Short_Notes/pnpoly.html
+
+      var x = point[0], y = point[1];
+
+      var inside = false;
+      for (var i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+        var xi = vs[i][0], yi = vs[i][1];
+        var xj = vs[j][0], yj = vs[j][1];
+
+        var intersect = ((yi > y) != (yj > y))
+          && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    },
+    drawShape(point, decPoint) {
       var x = 0, y = 0;
       var heartShape = new THREE.Shape();
       point.map((p, i)=> {
@@ -175,16 +195,83 @@ export default {
           heartShape.lineTo(p[0], p[1])
         }
       })
-      // 假设比例30就够了
+      var w = this.getNearPlaneWidth().w
+			var h = this.getNearPlaneWidth().h
+      // 计算平面的点与相机形成的射线与物体的交点
+      var raycaster = new THREE.Raycaster();
+      var allInterPoint = []
+      // 交点的原值
+      var allInterPointVal = []
+      // 原shape的值
+      var originshape = []
       var cameraposition = this.camera.position
-      // 把这个被删减者，放到原点后面的.3的位置
-      var target = [-cameraposition.x * .3, -cameraposition.y * .3, -cameraposition.z * .3]
+      // decPoint 只是轮廓数据，需要得到平面的所有点
+      var unit = 0.01 //横移单位
+      var xArr = []
+      var yArr = []
+      decPoint.map((v, i) => {
+        xArr.push(v[0])
+        yArr.push(v[1])
+      })
+      var decMax_x = Math.max(...xArr)
+      var decMin_x = Math.min(...xArr)
+      var decMax_y = Math.max(...yArr)
+      var decMin_y = Math.min(...yArr)
+
+      // 按照单位增加点
+      var decPointPlugin = []
+      for (var i = decMin_x; i <= decMax_x; i = i + unit) {
+        for (var b = decMin_y; b <= decMax_y; b = b + unit) {
+          if (this.pointInpolygon([i, b], decPoint)) {
+            decPointPlugin.push([i, b])
+          }
+        }
+      }
+
+      decPoint = decPoint.concat(decPointPlugin)
+      decPoint.map((v, i) => {
+        var mouse = new THREE.Vector2(v[0], v[1]);
+
+        raycaster.setFromCamera(mouse, this.camera);
+        var intersection = raycaster.intersectObject(this.cube_mesh);
+        if (intersection.length > 0) {
+
+          var interp = intersection[0].point
+          allInterPoint.push(Math.sqrt(Math.pow(interp.x - cameraposition.x, 2) + Math.pow(interp.y - cameraposition.y, 2) + Math.pow(interp.z - cameraposition.z, 2)))
+          allInterPointVal.push(interp)
+          originshape.push([v[0] * (w / 2), v[1] * (h / 2)])
+        }
+      })
+
+      var max = 0;
+
+      for (var i = 1; i < allInterPoint.length; i++) {
+        var cur = allInterPoint[i];
+        cur < allInterPoint[max] ? max = i : 0
+      }
+      // 查询最小的值
+      var target = allInterPointVal[max]
+
+      // 获取这个target对应的shape的点
+      var originshapepoint = originshape[max]
+      // 因为根据相机，转了角度
+      var angle = this.camera.rotation
+
+      // 获取转向camera之后的点的坐标
+      var a = new THREE.Euler( angle.x, angle.y, angle.z, 'XYZ' );
+      var b = new THREE.Vector3( originshapepoint[0], originshapepoint[1], 0);
+      b.applyEuler(a);
+      //addPoint([b.x, b.y, b.z], 0xFFC0CB) // 原点
+      // 要计算偏移量
+      var offset = [target.x - b.x, target.y - b.y, target.z - b.z]
+
       // 计算被删减者的长度
-      var depth = 2 * Math.sqrt(Math.pow(target[0], 2) + Math.pow(target[1], 2) + Math.pow(target[2], 2))
+				var depth = 10
+
       //console.log(depth, 'wwww')
       var extrudeSettings = {
           steps: 10,
-          depth: depth,
+          depth: -depth,
           bevelEnabled: false,
           bevelThickness: 1,
           bevelSize: 1,
@@ -196,14 +283,12 @@ export default {
       // 调整转向
       Sgeometry.lookAt(focalPoint);
       // 再移动到相机的点与当前点的中间
-      
-      
-      Sgeometry.translate(target[0], target[1], target[2]);
+		  Sgeometry.translate(offset[0], offset[1], offset[2]);
       
       var Smesh = new THREE.Mesh( Sgeometry,  this.wireMaterial) ;
       
       // 进行切割
-      const box3 = threecsg.subtract(this.cube_mesh, Smesh, normalMaterial);
+      const box3 = threecsg.intersect(this.cube_mesh, Smesh, normalMaterial);
 
       //const box3 = threecsg.subtract(boxMesh, Smesh, normalMaterial);
       //box3.quaternion.set(0, 0, 0, 1).normalize();
